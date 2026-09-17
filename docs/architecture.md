@@ -1,7 +1,8 @@
 # Architecture
 
-Status: implementation specification for the approved direction. The app is not
-built yet. Database behavior and recovery claims must be verified by tests.
+Status: implemented architecture. Focused tests exercise the schema engine,
+PostgreSQL execution, API flows, and recovery. See [testing](testing.md) and
+[benchmarks](benchmarks.md) for verification and measured behavior.
 
 See [requirements](requirements.md), [compatibility](compatibility.md), and the
 [decision log](../decisions.md) for scope and reasoning.
@@ -91,6 +92,8 @@ transaction across the metadata and target databases.
 | Job | Plan reference, request key, progress, outcome, and worker ownership |
 
 Use unique revision IDs and parent links rather than a global migration number.
+Completed revisions are immutable: later edits create another revision instead
+of changing an earlier one.
 A normal revision has one parent. A merge has the previous main head and source
 head as parents. Store a candidate revision before execution so a target receipt
 can always refer to it; show it as committed history only after success.
@@ -127,8 +130,9 @@ sandbox database, create supported objects in dependency order, verify them, and
 initialize fresh tracking records at that revision. Do not clone the source rows,
 sequence counters, or target execution journal.
 
-Separate sandbox provisioning credentials from normal execution credentials.
-The connected main database does not need database-creation privileges. Branch
+The sandbox currently uses its configured administrative role for provisioning
+and execution. Per-branch least-privilege roles are a future improvement. The
+connected main database does not need database-creation privileges. Branch
 provisioning is a durable job: use a recorded environment ID to identify a database
 after a crash and clean up only resources known to belong to that job.
 
@@ -141,8 +145,9 @@ not remove a database with active work.
 
 Model tables, columns, types and type parameters, defaults, nullability,
 constraints, indexes, and dependencies. A rename changes a name, not an object ID.
-Store supported expressions as structured values with references to column IDs.
-Do not infer arbitrary expressions or renames using string replacement.
+Store validated expression strings and constraint column IDs. Parse the restricted
+grammar when binding or renaming references. Do not infer arbitrary expressions
+or renames using string replacement.
 
 Catalog normalization must be deterministic. Normalize type aliases and sort
 unordered collections. Preserve meaningful key order in composite indexes and
@@ -279,8 +284,9 @@ percentages where PostgreSQL does not provide reliable progress.
 ## HTTP boundaries
 
 Group endpoints around connections, projects, branches, drafts, comparisons,
-merge plans, jobs, and history. Generate the OpenAPI description from typed API
-models and use it to keep frontend request types aligned.
+merge plans, jobs, and history. FastAPI publishes OpenAPI from the API models.
+Frontend request types follow [the shared contract](api.md); automatic TypeScript
+generation is a future improvement.
 
 Return useful field errors for invalid edits, a conflict response for stale
 versions, and an accepted response with a job ID for durable work. Scope access
@@ -289,9 +295,9 @@ API responses, logs, or browser storage.
 
 The hosted demo creates a scoped session and isolated sample database. Demo users
 can access only their own resources and cannot supply arbitrary remote targets.
-Private deployments use an operator-configured access mechanism and can manage
-their own database connections. Persist secrets encrypted with a deployment key
-using an established library; keep that key out of the database and repository.
+Local deployments use scoped browser sessions and can manage their own database
+connections. A team login system is outside scope. Secrets are encrypted with a
+deployment key using Fernet; keep that key out of the database and repository.
 
 ## Verification boundaries
 

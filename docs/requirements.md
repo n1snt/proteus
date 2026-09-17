@@ -1,6 +1,8 @@
 # Requirements
 
-Status: approved product direction, pending implementation and verification.
+Status: core local workflows implemented. Tests and the 5 GB benchmark have run;
+the hosted URL and remote repository are pending owner-provided access. See
+[testing](testing.md) and [benchmarks](benchmarks.md) for evidence.
 
 Proteus helps an engineer change a PostgreSQL schema on an isolated branch,
 understand differences, resolve conflicts, and merge into a shared main database.

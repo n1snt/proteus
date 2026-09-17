@@ -1,8 +1,8 @@
 # PostgreSQL compatibility
 
-Status: initial support contract for implementation. No items are verified yet.
-Mark any later scope changes in the [decision log](../decisions.md) and record
-verified behavior only after PostgreSQL integration tests pass.
+Status: implemented support boundary. Focused PostgreSQL 17 tests and the large
+table benchmark verify representative operations and failure cases, rather than
+every possible combination. Mark scope changes in the [decision log](../decisions.md).
 
 ## Database boundary
 
@@ -26,20 +26,21 @@ schemas may exist, but supported objects must not depend on their user objects.
 | Tables | Create and drop ordinary tables |
 | Columns | Add, drop, rename, change supported types, defaults, and nullability |
 | Scalar types | Boolean; smallint, integer, bigint; real, double precision; numeric with precision/scale; text and varchar with optional length; UUID; date; timestamp with or without time zone; JSONB; bytea |
-| Identity | Standard identity columns with their structural sequence settings |
+| Identity | Standard identity columns with default sequence settings; custom sequence options are rejected |
 | Defaults | Typed literals, null, and current timestamp; additional forms only after explicit support and tests |
 | Primary keys | Single-column and composite keys |
 | Unique constraints | Single-column and composite, with default null handling |
 | Foreign keys | Non-deferrable references within the tracked schema, with default match behavior and NO ACTION, RESTRICT, CASCADE, SET NULL, or SET DEFAULT actions |
 | Check constraints | A structured column-to-literal comparison or null check; expand the expression grammar only with tests |
-| Indexes | Ordinary single-column and composite B-tree indexes, including ordinary unique indexes |
+| Indexes | Ordinary ascending single-column and composite B-tree indexes with default null ordering, including ordinary unique indexes |
 
 Use a documented restricted expression grammar for defaults and checks. Import
 must recognize only supported forms using a proper parsing approach. Do not guess
 from regular expressions or accept arbitrary SQL through the editor. Report other
 forms as unsupported until they can be modeled and round-tripped correctly.
 
-Preserve meaningful index key order and supported sort direction. Constraint-owned
+Preserve meaningful index key order. Non-default sort and null ordering are
+reported as unsupported. Constraint-owned
 indexes belong to the constraint model. User-defined collations, operator classes,
 special storage settings, and unusual index or constraint options require explicit
 support rather than silently falling back to defaults.

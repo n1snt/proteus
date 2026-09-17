@@ -1,8 +1,10 @@
 # Product design
 
-Status: approved direction and initial screen specification. No screens are built
-or visually verified yet. See [requirements](requirements.md) for acceptance
-criteria and [architecture](architecture.md) for state behavior.
+Status: implemented screen design. The entry screen and schema workspace have
+been visually reviewed. UI review is manual; there is no automated browser suite.
+See [requirements](requirements.md) and [architecture](architecture.md).
+
+Screenshots: [entry screen](assets/landing.png) and [schema review](assets/workspace.png).
 
 ## Identity
 

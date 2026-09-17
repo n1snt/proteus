@@ -7,7 +7,10 @@ with tables holding roughly 5 GB of data.
 
 This log records choices and their tradeoffs. 'Accepted' records an agreed choice,
 not completed implementation. 'Proposed' records a design that still needs review.
-No application code or benchmarks exist yet.
+The local application is implemented. Tests and measured results are documented
+in [testing](docs/testing.md) and [benchmarks](docs/benchmarks.md). Early validation
+notes below preserve the plan at the time of each decision; the evidence section
+records what has since been checked.
 
 ## D-001: Name the project Proteus
 
@@ -313,3 +316,42 @@ typed model. The supported expression grammar stays deliberately small.
 **Validation:** Unit tests cover invalid expressions, identity rules, rename-aware
 checks, merge conflicts, and dependency validation. PostgreSQL tests check the
 actual schema after execution.
+
+## Implementation evidence and limits
+
+Date: 2026-09-17.
+
+- The Docker image builds and the app runs locally with PostgreSQL 17.11.
+- The focused suite covers clean and conflicting merges, checked-column renames,
+  atomic rollback, partial constraint validation, index recovery, session isolation,
+  duplicate requests, and target commit followed by metadata publication failure.
+- The measured dataset holds 5,063,278,592 physical data bytes and 4,325,376 rows.
+  See the benchmark report for timings and workload limits.
+- Constraint validation commits separately from the initial NOT VALID change.
+  This releases the stronger initial lock and retains honest partial-state receipts.
+- The sandbox uses its configured admin role for both provisioning and execution.
+  Per-branch roles are a deliberate remaining hardening task, not a claimed feature.
+- Remote deployment and GitHub publishing await owner-provided access.
+
+## D-015: Verify literal expressions by their PostgreSQL meaning
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Recognize PostgreSQL's implicit casts and folded literal values during
+post-execution verification. Compare only validated constants through PostgreSQL
+when their printed forms differ. Treat the implicit varchar-to-text cast in a
+simple check as part of the supported string comparison.
+
+**Alternatives:** Compare deparsed SQL text directly, or strip every cast without
+checking whether it changes the value.
+
+**Reason:** PostgreSQL may print a user default such as 'draft' with an added type
+cast. Text comparison incorrectly reported a failed migration after valid DDL.
+Arbitrary cast stripping could hide a real difference instead.
+
+**Tradeoff:** Verification may issue a few extra constant-only queries. These do
+not scan table rows and do not accept arbitrary user SQL.
+
+**Validation:** A real PostgreSQL regression test applies a string default, a
+varchar check, and a folded integer default, then inserts a row and checks the
+stored values. The complete focused suite passes 32 cases.
