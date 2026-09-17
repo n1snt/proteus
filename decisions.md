@@ -29,7 +29,8 @@ claim unique branding or an available domain. A custom domain is not required.
 Date: 2026-09-17. Status: Accepted.
 
 **Choice:** Use Python and keep the code easy to explain and change. FastAPI and
-Psycopg 3 are the proposed API framework and PostgreSQL driver.
+Psycopg 3 are the API framework and PostgreSQL driver. They were first proposed
+with the Python choice and accepted in the later design approval.
 
 **Alternatives:** Go, which was the first recommendation, and an all-TypeScript
 stack.
@@ -86,13 +87,17 @@ branching better than a single global sequence number.
 target. A revision is schema history, not a backup of deleted data.
 
 **Validation:** Test a crash after target commit but before the central status
-update. The proposed design commits transactional DDL with its target receipt.
-Multi-phase operations need separate progress and recovery checks. Exact tables
-and recovery behavior remain to be designed and tested.
+update. The accepted design commits transactional DDL with its target receipt.
+Multi-phase operations need separate progress and recovery checks. The target
+records and recovery rules are specified in [architecture](docs/architecture.md)
+and still need implementation and tests.
 
 ## D-005: Use schema-only branch databases
 
-Date: 2026-09-17. Status: Proposed.
+Date: 2026-09-17. Status: Accepted.
+
+Initially proposed during planning; accepted when the owner approved the design
+recommendations. Acceptance does not mean the database behavior has been tested.
 
 **Choice:** Give each branch an isolated PostgreSQL database containing a copy of
 the supported schema, without copying source rows. Store immutable snapshots and
@@ -110,7 +115,7 @@ preserve rename intent during comparison and merging.
 a new type or constraint. Row versioning and data merges are out of scope.
 
 **Validation:** Review the supported PostgreSQL objects, prototype branch creation,
-and test rename conflicts and target data failures before accepting this design.
+and test rename conflicts and target data failures. These checks remain pending.
 
 ## D-006: Ship a Docker-based web app
 
@@ -127,7 +132,145 @@ also lets a reviewer run the project on their own machine.
 
 **Tradeoff and cut:** A small node has limited memory and disk. Start with one
 application and PostgreSQL rather than a distributed service setup. React and
-TypeScript are the proposed frontend stack. Exact service layout is still open.
+TypeScript are the accepted frontend stack, with Vite for development and builds.
+Use separate metadata and sandbox PostgreSQL services. The application serves the
+built frontend and API behind a reverse proxy in the hosted setup.
 
 **Validation:** Test setup from a clean environment and measure resource use before
 choosing the node size. No deployment or startup command is available yet.
+
+## D-007: Use structured drafts and feature-to-main merges
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Collect edits in a saved draft, review the generated plan, and apply
+the batch to the branch database before publishing a revision. Merge feature
+branches into main using their common base and explicit conflict resolutions.
+
+**Alternatives:** Execute every form edit immediately, expose an arbitrary SQL
+editor, or support every Git-style history operation from the start.
+
+**Reason:** A draft gives the user a clear review point. Structured changes retain
+rename intent and are easier to validate. One merge direction keeps the core
+workflow small enough to build and explain well.
+
+**Tradeoff and cut:** Main changes go through branches. Rebase, cherry-pick, and
+arbitrary branch merge targets are excluded. The initial lifecycle closes merged
+source branches; later work starts from the latest main revision.
+
+**Validation:** Test saved drafts, stale-head rejection, duplicate apply requests,
+compatible changes, conflicting renames, and dependency conflicts. Verify that
+failed execution does not publish a completed revision.
+
+## D-008: Publish a narrow PostgreSQL support contract
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Target PostgreSQL 17 and one selected application schema. Cover the
+brief's operation categories for ordinary tables, supported scalar types,
+constraints, and B-tree indexes. Define exact limits in
+[compatibility](docs/compatibility.md).
+
+**Alternatives:** Support all PostgreSQL objects or silently ignore unmodeled
+features during import.
+
+**Reason:** Complete behavior for a clear subset is more useful than an incomplete
+claim of full compatibility. Import, diff, planning, and verification must agree
+on the same schema model.
+
+**Tradeoff and cut:** Some real databases will need unsupported features removed
+from the selected schema before import. Arbitrary expressions, partitioning,
+extensions, and procedural database objects are outside the first release.
+
+**Validation:** Round-trip every supported definition through real PostgreSQL.
+Test unsupported-object reporting and each supported type conversion separately.
+
+## D-009: Use durable PostgreSQL jobs in one application
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Persist jobs in the metadata database and run a bounded worker loop
+inside the application process. Use explicit Psycopg transactions and poll job
+status from the frontend. Keep pure schema and merge functions synchronous.
+
+**Alternatives:** Run migrations inside HTTP requests, rely on in-memory background
+tasks, or add a broker and separate worker service immediately.
+
+**Reason:** Database work can outlast a request or process. Persisted jobs retain
+intent and status without adding another service to the small deployment.
+
+**Tradeoff and cut:** Keep one API process initially. Queue storage alone does not
+provide exactly-once execution; target locks, receipts, and recovery checks are
+required. Use direct SQL rather than an ORM for the schema engine.
+
+**Validation:** Test browser disconnects, process restarts, duplicate requests,
+target lock contention, and the gap between target commit and central completion.
+
+## D-010: Favor an immediate demo and one polished UI
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Offer an isolated hosted sample workspace and support configured
+external connections in local or private deployments. Use customers, invoices,
+invoice items, and payments as the demo dataset. Build one light workbench theme.
+
+**Alternatives:** Require database credentials before the reviewer can try the
+app, use one shared mutable demo, or spend time on extra themes and dashboards.
+
+**Reason:** Reviewers need a quick path to real branching and merging. Isolated
+workspaces avoid visitors overwriting one another. A focused interface gives more
+time to make diffs, conflicts, and execution states clear.
+
+**Tradeoff and cut:** The public demo cannot target arbitrary remote databases.
+Workspace expiry and resource limits are needed on a small node. Team accounts
+and fine-grained team permissions are outside this version.
+
+**Validation:** Run the full flow from a fresh browser, verify workspace isolation,
+and review keyboard access, narrow layouts, errors, and partial execution states.
+
+## D-011: Make large-table behavior explicit and measurable
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Keep schema workflows independent of row volume. Use concurrent index
+builds and staged constraint checks where supported. Run rewrite-heavy changes as
+tracked jobs with their lock and rewrite effects disclosed before execution.
+
+**Alternatives:** Copy rows for branches, wrap every migration in one transaction,
+or claim that every supported change can run without blocking writes.
+
+**Reason:** PostgreSQL operations have different transaction and lock requirements.
+The 5 GB requirement calls for evidence and a responsive workflow, not a blanket
+claim that all DDL is fast or non-blocking.
+
+**Tradeoff and cut:** Multi-phase migrations can leave partial state. Some type
+changes need blocking work and additional disk space. Universal zero-downtime
+conversion and automatic restoration of deleted data are excluded.
+
+**Validation:** Use the physical-size benchmark and concurrent workload defined in
+[requirements](docs/requirements.md). Record timings, memory, table sizes, lock
+behavior, failures, and restart outcomes. No benchmark results exist yet.
+
+## D-012: Make self-hosting primary and provide a hosted demo
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Make Docker Compose on the user's machine or private server the main
+way to use Proteus, similar to a self-hosted database administration tool. Run the
+same app on E2E Networks with isolated sample databases for reviewers. This
+clarifies the deployment priorities in D-006 and the demo scope in D-010.
+
+**Alternatives:** Make Proteus a hosted service that manages user database
+connections, or provide only local setup with no testable hosted URL.
+
+**Reason:** Users can keep credentials and schema history in their own deployment.
+The hosted demo still meets the assignment's URL requirement and lets reviewers
+try real changes without installing the app.
+
+**Tradeoff and cut:** Maintain local setup and a small demo deployment, but share
+the application code and image. Demo visitors use sample databases only. Core
+self-hosted workflows must not depend on our demo server or an E2E account.
+
+**Validation:** Test the local workflow with no connection to the hosted service.
+Check container networking guidance against real setup, and verify the hosted
+sample workflow and workspace isolation separately. These checks remain pending.

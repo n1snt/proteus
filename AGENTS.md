@@ -8,9 +8,17 @@ Build a web app for PostgreSQL schema branching, diffs, and merges. Apply change
 to real databases and test behavior with tables holding roughly 5 GB of data.
 Favor a complete, clear workflow over a long feature list.
 
+Treat self-hosted Docker use as the primary product experience. The hosted demo
+uses the same app with isolated sample databases. Core workflows must not depend
+on the demo service or an E2E Networks account.
+
 Use Python for the backend. Read 'decisions.md' before changing the design.
 Proposed decisions are not settled requirements. Keep the code easy for its owner
 to explain, debug, and change in an interview.
+
+Read 'docs/requirements.md' for scope, 'docs/architecture.md' for the approved
+design, 'docs/compatibility.md' for database limits, and 'docs/design.md' for UI
+behavior. These are implementation specs, not proof that a feature is built.
 
 ## Writing
 
@@ -41,15 +49,90 @@ to explain, debug, and change in an interview.
   change detection or reconciliation without an explicit scope decision.
 - Continue to handle concurrent data writes, failed migrations, and interrupted
   execution. Those are part of applying our own changes correctly.
-- Run checks suited to the change. Test real failure cases rather than chasing a
-  coverage number. Docs-only edits need review, not application tests.
 - Keep each change focused. Do not overwrite unrelated work or commit secrets,
   database contents, local settings, or build output.
 
-## Documentation
+## Testing strategy
 
-Keep 'README.md' short: purpose, current status, working setup instructions when
-available, and links to deeper notes. Put detailed design in supporting docs.
+Write enough tests to protect important behavior. Keep the suite small, useful,
+and easy to maintain. Do not chase a coverage percentage or a test-count target.
+Before adding a test, name the real bug it would catch and check whether an
+existing test already covers that behavior.
+
+### Where tests add value
+
+- Use unit tests for schema rules, rename handling, merge conflicts, and operation
+  ordering. Assert expected results rather than copying the algorithm into a test.
+- Use real PostgreSQL integration tests for generated DDL, constraints, locks,
+  transaction outcomes, and restart recovery. Database mocks cannot prove these.
+- Keep browser tests to the main user journeys, including a clean merge and a
+  resolved conflict. Add focused UI tests only for meaningful interaction logic.
+- Run the required 5 GB benchmark separately from the normal fast suite. Document
+  the setup and measurements when the benchmark exists.
+
+### Keep tests lean
+
+- Test at the lowest layer that proves the behavior. Do not repeat every case at
+  unit, API, and browser levels unless each test catches a different kind of bug.
+- Prioritize data loss, partial execution, stale plans, and duplicate application.
+  Cover distinct failure modes, not every possible combination of inputs.
+- Skip tests for trivial getters, framework behavior, static copy, and cosmetic
+  changes. Use document review or visual checks where those give better evidence.
+- Avoid brittle full-page snapshots, assertions on private helpers, and mock-call
+  checks that merely mirror the implementation.
+- Keep fixtures small and deterministic. Reuse setup without building a large
+  custom test framework. Add a regression case when it protects a real bug that
+  existing tests miss.
+- Do not delete, weaken, or overwrite useful tests just to make a change pass.
+  Update expectations only when intended behavior changes.
+
+Run the relevant tests and required checks for each change. Once they pass, do
+not broaden or repeat testing without a new change, failure, unresolved concern,
+or required release check. Docs-only edits need content, link, and style review,
+not application tests. Record actual commands and outcomes; report blocked checks
+instead of claiming they passed. Put working test instructions in 'docs/testing.md'.
+
+## Documentation strategy
+
+Keep most documentation in 'docs/'. Use lowercase, hyphen-separated file names.
+Keep these three entry points at the repository root:
+
+- 'README.md': short overview, current status, working quickstart when available,
+  and links to deeper docs.
+- 'AGENTS.md': writing, coding, documentation, and commit rules.
+- 'decisions.md': the history of meaningful choices and their tradeoffs.
+
+Use these paths as each topic needs documentation:
+
+| Path | Contents |
+| --- | --- |
+| 'docs/requirements.md' | User workflows, scope, and acceptance criteria tied to the assignment |
+| 'docs/architecture.md' | Components, data model, request flow, merge rules, and execution states |
+| 'docs/design.md' | Screen layouts, visual choices, interactions, and UI states |
+| 'docs/compatibility.md' | Supported PostgreSQL versions, objects, operations, and limits |
+| 'docs/development.md' | Local setup, configuration, and common development tasks |
+| 'docs/testing.md' | Test commands, fixtures, failure cases, and how to reproduce them |
+| 'docs/deployment.md' | Docker setup, E2E Networks deployment, storage, and recovery steps |
+| 'docs/benchmarks.md' | Workloads, hardware, commands, measured results, and limits |
+
+Store screenshots and diagrams in 'docs/assets/' and link to them from the relevant
+page. Keep runnable scripts, test fixtures, and deployment files with their code;
+link to them instead of copying their contents into docs.
+
+Create a document when it has useful content. Do not add empty placeholders or
+separate pages for every small change. Split a page only when that improves
+navigation. Add 'docs/README.md' as an index if the collection becomes hard to
+browse, and link the main guides from the root README.
+
+Give each topic one main home. Describe the current design in 'architecture.md'
+and the reasons for past choices in 'decisions.md'. Link between them rather than
+repeating the same explanation. Clearly label proposed designs until accepted.
+
+Update affected docs alongside code in the same change. Check paths, relative
+links, examples, and commands. Record only checks and measurements actually run.
+Remove or correct stale instructions when behavior changes.
+
+### Decision log
 
 Keep 'decisions.md' as a record of choices, not a changelog. Update it in the same
 commit as a meaningful design or scope change. Each entry should include:
@@ -68,6 +151,10 @@ changes do not need new decision entries.
 
 Commit only when the user requests a commit or grants an ongoing commit workflow.
 A request for one commit does not grant permission for later commits or pushes.
+
+The owner has authorized local commits at verified implementation milestones for
+this build. Keep commits focused and follow the checks below. Remote pushes and
+deployment will follow when the owner provides the repository and SSH access.
 
 Before committing:
 
