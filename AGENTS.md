@@ -65,15 +65,15 @@ existing test already covers that behavior.
   ordering. Assert expected results rather than copying the algorithm into a test.
 - Use real PostgreSQL integration tests for generated DDL, constraints, locks,
   transaction outcomes, and restart recovery. Database mocks cannot prove these.
-- Keep browser tests to the main user journeys, including a clean merge and a
-  resolved conflict. Add focused UI tests only for meaningful interaction logic.
+- Check the UI manually. Do not add Playwright or other automated end-to-end
+  browser suites. Use a few API integration flows to check the connected system.
 - Run the required 5 GB benchmark separately from the normal fast suite. Document
   the setup and measurements when the benchmark exists.
 
 ### Keep tests lean
 
 - Test at the lowest layer that proves the behavior. Do not repeat every case at
-  unit, API, and browser levels unless each test catches a different kind of bug.
+  unit and API levels unless each test catches a different kind of bug.
 - Prioritize data loss, partial execution, stale plans, and duplicate application.
   Cover distinct failure modes, not every possible combination of inputs.
 - Skip tests for trivial getters, framework behavior, static copy, and cosmetic

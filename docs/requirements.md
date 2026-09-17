@@ -106,7 +106,7 @@ numeric latency targets before the benchmark run and report misses honestly.
 | Product thinking | A complete connect, branch, edit, compare, merge, and verify workflow |
 | UX | Useful connection errors, semantic diffs, clear conflict choices, and truthful progress |
 | Engineering | Stable identities, three-way merging, ordered plans, and recoverable execution |
-| Tests | Real database failures, merge edge cases, and the critical browser workflows |
+| Tests | Real database failures, merge edge cases, and focused API integration flows |
 | Documentation | Clean setup instructions, current architecture, and a running decision log |
 | Velocity | Early end-to-end milestones followed by measured improvements |
 | Depth | Rename-aware merging and demonstrated large-table execution behavior |

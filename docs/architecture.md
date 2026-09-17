@@ -64,7 +64,9 @@ diff, and merge logic. Database operations run in PostgreSQL, not on fetched row
 | 'jobs' | Durable queue, progress, and recovery scheduling |
 | 'storage' | Explicit SQL for application metadata |
 
-Use Pydantic at API boundaries and typed dataclasses or enums for core models.
+Use Pydantic at API boundaries and strictly validated JSON-compatible dictionaries
+for core snapshots. Normalization checks supported fields, IDs, and dependencies
+before the pure engine accepts a snapshot.
 The merge engine accepts snapshots and returns a candidate schema and conflicts.
 It does not open a connection or update a branch. Avoid an ORM in the schema
 engine and keep database transaction ownership visible.
@@ -296,7 +298,8 @@ using an established library; keep that key out of the database and repository.
 - Unit tests cover pure schema, diff, merge, and plan behavior.
 - PostgreSQL integration tests verify supported DDL and actual failure outcomes.
 - Crash tests cover both transactional receipts and non-transactional gaps.
-- Browser tests cover one complete clean merge and one resolved conflict.
+- Focused API integration tests cover the connected workflow. Review the UI
+  manually; an automated browser test suite is outside the build scope.
 - Benchmarks use the physical-size and workload requirements in the product spec.
 
 External DDL detection is not part of these checks. Post-execution introspection

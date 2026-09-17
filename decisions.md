@@ -274,3 +274,42 @@ self-hosted workflows must not depend on our demo server or an E2E account.
 **Validation:** Test the local workflow with no connection to the hosted service.
 Check container networking guidance against real setup, and verify the hosted
 sample workflow and workspace isolation separately. These checks remain pending.
+
+## D-013: Keep automated tests focused on the engine and database
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Use focused unit tests and real PostgreSQL integration tests, including
+a few API workflows. Check the UI manually. Remove the initial Playwright suite
+and its dependency after the owner explicitly cut browser automation from scope.
+
+**Alternatives:** Maintain an automated browser suite alongside API tests.
+
+**Reason:** The owner prefers a lean suite. The highest-value automated checks
+cover schema merges, DDL outcomes, transaction failures, and recovery.
+
+**Tradeoff and cut:** Browser-only issues need manual review. Keep frontend type
+checks and production builds, and verify the main interactions before submission.
+
+## D-014: Keep schema snapshots JSON-compatible and parse expressions
+
+Date: 2026-09-17. Status: Accepted.
+
+**Choice:** Use strictly validated dictionaries for persisted schema snapshots and
+Pydantic models at HTTP boundaries. Use PostgreSQL's parser through pglast for the
+restricted expression grammar. Rebind check references by column identity during
+renames, changing parsed identifiers rather than literal text.
+
+**Alternatives:** A parallel dataclass model with separate JSON adapters, or text
+replacement in SQL expressions.
+
+**Reason:** One snapshot format reduces conversion code between history, merge,
+and the frontend. Explicit validation keeps unsupported shapes out of execution.
+Parsing preserves literal values when a column name also appears inside a string.
+
+**Tradeoff and cut:** Dictionary fields have less static type checking than a fully
+typed model. The supported expression grammar stays deliberately small.
+
+**Validation:** Unit tests cover invalid expressions, identity rules, rename-aware
+checks, merge conflicts, and dependency validation. PostgreSQL tests check the
+actual schema after execution.
