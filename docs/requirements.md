@@ -1,7 +1,8 @@
 # Requirements
 
 Status: core local workflows implemented. Tests and the 5 GB benchmark have run;
-the hosted URL and remote repository are pending owner-provided access. See
+the repository is published at [n1snt/proteus](https://github.com/n1snt/proteus).
+The hosted URL is pending SSH access. See
 [testing](testing.md) and [benchmarks](benchmarks.md) for evidence.
 
 Proteus helps an engineer change a PostgreSQL schema on an isolated branch,
@@ -138,5 +139,5 @@ to the final milestone.
 ## Delivery inputs still needed
 
 The owner set a 12-hour delivery window at implementation start. Develop and
-verify locally first; SSH access and the GitHub remote will be provided later.
+verify locally first. GitHub is configured; SSH access will be provided later.
 The node size and public URL can be selected after the first resource measurements.

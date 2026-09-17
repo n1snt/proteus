@@ -331,7 +331,8 @@ Date: 2026-09-17.
   This releases the stronger initial lock and retains honest partial-state receipts.
 - The sandbox uses its configured admin role for both provisioning and execution.
   Per-branch roles are a deliberate remaining hardening task, not a claimed feature.
-- Remote deployment and GitHub publishing await owner-provided access.
+- The repository is published at [n1snt/proteus](https://github.com/n1snt/proteus).
+  Remote deployment awaits owner-provided SSH access.
 
 ## D-015: Verify literal expressions by their PostgreSQL meaning
 
