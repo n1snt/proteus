@@ -203,6 +203,39 @@ function ConnectionDialog({
   testConnection: () => void;
   connect: (event: FormEvent) => void;
 }) {
+  const [mode, setMode] = useState<"url" | "fields">("url");
+  const [connection, setConnection] = useState({
+    host: "host.docker.internal",
+    port: "5432",
+    database: "postgres",
+    user: "postgres",
+    password: "",
+    sslmode: "prefer",
+  });
+  function connectionUrl(value: typeof connection) {
+    const host =
+      value.host.includes(":") && !value.host.startsWith("[")
+        ? "[" + value.host + "]"
+        : value.host;
+    return (
+      "postgresql://" +
+      encodeURIComponent(value.user) +
+      ":" +
+      encodeURIComponent(value.password) +
+      "@" +
+      host +
+      ":" +
+      value.port +
+      "/" +
+      encodeURIComponent(value.database) +
+      "?sslmode=" +
+      value.sslmode
+    );
+  }
+  function updateConnection(next: typeof connection) {
+    setConnection(next);
+    setForm({ ...form, dsn: connectionUrl(next) });
+  }
   return (
     <Modal title="Connect PostgreSQL" close={close}>
       <form className="form-stack" onSubmit={connect}>
@@ -219,15 +252,126 @@ function ConnectionDialog({
             placeholder="Billing production"
           />
         </Field>
-        <Field label="PostgreSQL URL">
-          <input
-            required
-            type="password"
-            value={form.dsn}
-            onChange={(event) => setForm({ ...form, dsn: event.target.value })}
-            placeholder="postgresql://user:password@host:5432/database"
-          />
-        </Field>
+        <div className="form-inline">
+          <button
+            type="button"
+            className={mode === "url" ? "" : "button-quiet"}
+            onClick={() => setMode("url")}
+          >
+            Connection URL
+          </button>
+          <button
+            type="button"
+            className={mode === "fields" ? "" : "button-quiet"}
+            onClick={() => {
+              setMode("fields");
+              updateConnection(connection);
+            }}
+          >
+            Connection fields
+          </button>
+        </div>
+        {mode === "url" ? (
+          <Field label="PostgreSQL URL">
+            <input
+              required
+              type="password"
+              value={form.dsn}
+              onChange={(event) =>
+                setForm({ ...form, dsn: event.target.value })
+              }
+              placeholder="postgresql://user:password@host:5432/database"
+            />
+          </Field>
+        ) : (
+          <>
+            <div className="form-inline">
+              <Field label="Host">
+                <input
+                  required
+                  value={connection.host}
+                  onChange={(event) =>
+                    updateConnection({
+                      ...connection,
+                      host: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Port">
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={connection.port}
+                  onChange={(event) =>
+                    updateConnection({
+                      ...connection,
+                      port: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+            </div>
+            <Field label="Database">
+              <input
+                required
+                value={connection.database}
+                onChange={(event) =>
+                  updateConnection({
+                    ...connection,
+                    database: event.target.value,
+                  })
+                }
+              />
+            </Field>
+            <div className="form-inline">
+              <Field label="User">
+                <input
+                  required
+                  autoComplete="username"
+                  value={connection.user}
+                  onChange={(event) =>
+                    updateConnection({
+                      ...connection,
+                      user: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Password">
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={connection.password}
+                  onChange={(event) =>
+                    updateConnection({
+                      ...connection,
+                      password: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+            </div>
+            <Field label="TLS mode">
+              <select
+                value={connection.sslmode}
+                onChange={(event) =>
+                  updateConnection({
+                    ...connection,
+                    sslmode: event.target.value,
+                  })
+                }
+              >
+                <option value="prefer">Prefer TLS</option>
+                <option value="require">Require TLS</option>
+                <option value="verify-full">Verify certificate and host</option>
+                <option value="disable">Disable TLS (local only)</option>
+              </select>
+            </Field>
+          </>
+        )}
         <Field label="Schema">
           <input
             required

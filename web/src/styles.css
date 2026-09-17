@@ -417,6 +417,7 @@ p {
 .work-area {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto 1fr;
 }
 .workspace-header {
@@ -448,6 +449,9 @@ p {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .header-actions {
   flex-wrap: wrap;
@@ -643,10 +647,14 @@ button {
 .definition-main {
   display: grid;
   gap: 2px;
-  min-width: 115px;
+  min-width: 0;
+  flex: 1;
 }
 .definition-main strong {
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .definition-main code,
 .muted {
@@ -1375,7 +1383,7 @@ input::placeholder {
     min-height: 58px;
     align-items: center;
   }
-  .header-actions .button-quiet:first-child {
+  .header-actions .button-quiet:not(:last-child) {
     display: none;
   }
   .read-only-note {

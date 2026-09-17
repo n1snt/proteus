@@ -29,10 +29,10 @@ class Service:
         return value
 
     @staticmethod
-    def validate_label(value: str, label: str) -> str:
+    def validate_label(value: str, label: str, maximum: int = 63) -> str:
         value = value.strip()
-        if not value or '\x00' in value or len(value.encode('utf-8')) > 63:
-            raise ValueError(f'{label} must be between 1 and 63 characters')
+        if not value or '\x00' in value or len(value.encode('utf-8')) > maximum:
+            raise ValueError(f'{label} must be between 1 and {maximum} bytes')
         return value
 
     async def test_connection(self, dsn: str, schema_name: str) -> dict[str, Any]:
@@ -43,7 +43,7 @@ class Service:
             async with await psycopg.AsyncConnection.connect(
                 dsn, connect_timeout=self.settings.connection_timeout_seconds
             ) as conn:
-                result = await catalog.introspect(conn, schema_name)
+                result = await self._inspect_target(conn, schema_name)
                 async with conn.cursor() as cursor:
                     await cursor.execute(
                         """SELECT nspname FROM pg_namespace
@@ -55,7 +55,7 @@ class Service:
             raise ValueError(_safe_error(error)) from None
         return {
             'ok': not result['unsupported'],
-            'server_version': result['server_version'],
+            'server_version': f'{result["server_version"] // 10000}.{result["server_version"] % 10000}',
             'schemas': schemas,
             'unsupported': result['unsupported'],
         }
@@ -97,7 +97,7 @@ class Service:
     async def queue_commit(
         self, workspace_id: str, branch_id: str, message: str, version: int, request_id: str
     ) -> str:
-        message = self.validate_label(message, 'Commit message')
+        message = self.validate_label(message, 'Commit message', 500)
         existing = await self.storage.idempotent_revision_job(
             workspace_id,
             request_id,
@@ -173,7 +173,7 @@ class Service:
         resolutions: dict[str, str],
         request_id: str,
     ) -> str:
-        message = self.validate_label(message, 'Merge message')
+        message = self.validate_label(message, 'Merge message', 500)
         existing = await self.storage.idempotent_revision_job(
             workspace_id,
             request_id,
@@ -287,7 +287,40 @@ class Service:
         async with await psycopg.AsyncConnection.connect(
             dsn, connect_timeout=self.settings.connection_timeout_seconds
         ) as conn:
-            return await catalog.introspect(conn, schema_name)
+            return await self._inspect_target(conn, schema_name)
+
+    async def _inspect_target(self, conn: Any, schema_name: str) -> dict[str, Any]:
+        result = await catalog.introspect(conn, schema_name)
+        if result['unsupported']:
+            return result
+        cursor = await conn.execute(
+            "SELECT has_database_privilege(current_database(), 'CREATE'), "
+            "has_schema_privilege(%s, 'USAGE') AND has_schema_privilege(%s, 'CREATE')",
+            (schema_name, schema_name),
+        )
+        can_track, can_edit = await cursor.fetchone()
+        if not can_track or not can_edit:
+            result['unsupported'].append(
+                {
+                    'object': 'access',
+                    'name': schema_name,
+                    'reason': 'The role needs database CREATE for tracking, plus schema USAGE and CREATE.',
+                }
+            )
+        cursor = await conn.execute(
+            'SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace '
+            "WHERE n.nspname = %s AND c.relkind = 'r' AND NOT pg_has_role(c.relowner, 'USAGE')",
+            (schema_name,),
+        )
+        for row in await cursor.fetchall():
+            result['unsupported'].append(
+                {
+                    'object': 'access',
+                    'name': row[0],
+                    'reason': 'The connected role needs owner access to change this table.',
+                }
+            )
+        return result
 
     async def initialize_tracking(
         self, dsn: str, environment_id: str, revision_id: str, snapshot: dict[str, Any]

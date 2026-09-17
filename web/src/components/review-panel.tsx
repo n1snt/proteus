@@ -245,7 +245,9 @@ export function Plan({ preview }: { preview: Preview }) {
       ))}
       <div className="plan-title">
         <span>SQL plan</span>
-        <small>{preview.steps.length} steps</small>
+        <small>
+          {preview.steps.length} {preview.steps.length === 1 ? "step" : "steps"}
+        </small>
       </div>
       <div className="sql-steps">
         {preview.steps.map((step) => (
