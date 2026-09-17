@@ -172,8 +172,8 @@ class JobWorker:
     async def _run_branch(self, job: dict[str, Any]) -> dict[str, Any]:
         main = await self.storage.get_branch(str(job['workspace_id']), str(job['branch_id']))
         payload = job['payload']
-        if str(main['head_revision']) != payload['base_revision']:
-            raise RuntimeError('Main changed before branch provisioning')
+        # The fork point is immutable, so a newer main head does not invalidate
+        # a queued or resumed schema-only branch creation.
         snapshot = await self.storage.revision_snapshot(payload['base_revision'])
         await self.storage.update_job(str(job['id']), stage='provisioning')
         records = await self.storage.provisioned_branch(str(job['id']))

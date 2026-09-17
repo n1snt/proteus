@@ -369,6 +369,20 @@ class Storage:
         async with await self.connection() as conn:
             async with conn.cursor() as cursor:
                 if kind in {'import', 'demo'}:
+                    if self.settings.mode == 'demo':
+                        await cursor.execute(
+                            "SELECT pg_advisory_xact_lock(hashtextextended('proteus-demo-capacity', 0))"
+                        )
+                        await cursor.execute(
+                            """SELECT (SELECT count(*) FROM projects p JOIN workspaces w ON w.id = p.workspace_id WHERE w.mode = 'demo')
+                            + (SELECT count(*) FROM jobs j JOIN workspaces w ON w.id = j.workspace_id
+                               WHERE w.mode = 'demo' AND j.kind = 'demo' AND j.project_id IS NULL
+                               AND (j.status IN ('queued', 'running') OR j.payload ? 'records')) AS count"""
+                        )
+                        if (await cursor.fetchone())['count'] >= 40:
+                            raise Conflict(
+                                'The hosted demo is at capacity. Try again later or run Proteus locally.'
+                            )
                     await cursor.execute(
                         'SELECT id FROM workspaces WHERE id = %s FOR UPDATE', (workspace_id,)
                     )
@@ -386,6 +400,20 @@ class Storage:
                     )
                     if (await cursor.fetchone())['count'] >= self.settings.max_projects:
                         raise Conflict('Project limit reached for this workspace')
+                    await cursor.execute(
+                        """SELECT EXISTS (SELECT 1 FROM projects WHERE workspace_id = %s AND name = %s)
+                        OR EXISTS (SELECT 1 FROM jobs WHERE workspace_id = %s
+                          AND kind IN ('import', 'demo') AND status IN ('queued', 'running')
+                          AND payload->>'name' = %s) AS taken""",
+                        (workspace_id, payload['name'], workspace_id, payload['name']),
+                    )
+                    if (await cursor.fetchone())['taken']:
+                        if kind == 'import':
+                            raise Conflict(
+                                'A project with this name already exists or is being imported'
+                            )
+                        payload = {**payload, 'name': payload['name'][:50] + ' ' + new_id()[:6]}
+                        payload_hash = canonical_hash(payload)
                 if request_id:
                     await cursor.execute(
                         """SELECT id, payload_hash FROM jobs
@@ -801,11 +829,17 @@ class Storage:
                         job['id'],
                     ),
                 )
-                if job['branch_id']:
+                if job['branch_id'] and job['kind'] in {'commit', 'merge'}:
                     branch_status = 'needs_attention' if status == 'needs_attention' else 'ready'
                     await cursor.execute(
                         'UPDATE branches SET status = %s WHERE id = %s',
                         (branch_status, job['branch_id']),
+                    )
+                if job['kind'] == 'branch' and status != 'succeeded':
+                    await cursor.execute(
+                        """UPDATE branches b SET status = 'needs_attention' FROM environments e
+                        WHERE b.environment_id = e.id AND e.provision_job_id = %s""",
+                        (job['id'],),
                     )
                 if job['kind'] == 'merge' and job['payload'].get('source_branch_id'):
                     source_status = (
