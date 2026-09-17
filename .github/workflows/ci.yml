@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      metadata:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: proteus
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: proteus_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d proteus"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      sandbox:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: proteus_sandbox
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: proteus_ci
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d proteus_sandbox"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PROTEUS_DATABASE_URL: postgresql://postgres:proteus_ci@127.0.0.1:5432/proteus
+      PROTEUS_SANDBOX_URL: postgresql://postgres:proteus_ci@127.0.0.1:5433/proteus_sandbox
+      PROTEUS_MODE: local
+      PROTEUS_SECRET_KEY: ci-only-not-for-deployment
+      PROTEUS_COOKIE_SECURE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install Python dependencies
+        run: uv sync --frozen --all-groups
+      - name: Lint
+        run: uv run ruff check .
+      - name: Unit tests
+        run: uv run pytest -m "not integration"
+      - name: PostgreSQL integration and same-origin session tests
+        run: uv run pytest -m integration
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Check frontend
+        run: npm run check
+      - name: Build frontend
+        run: npm run build

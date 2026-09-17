@@ -1,0 +1,46 @@
+services:
+  app:
+    environment:
+      PROTEUS_DATABASE_URL: ${PROTEUS_DATABASE_URL:?Set the metadata database URL}
+      PROTEUS_SANDBOX_URL: ${PROTEUS_SANDBOX_URL:?Set the sandbox database URL}
+      PROTEUS_MODE: demo
+      PROTEUS_SECRET_KEY: ${PROTEUS_SECRET_KEY:?Set a strong deployment secret}
+      PROTEUS_POSTGRES_PASSWORD: ${PROTEUS_POSTGRES_PASSWORD:?Set a database password}
+      PROTEUS_COOKIE_SECURE: "true"
+      PROTEUS_MAX_PROJECTS: ${PROTEUS_MAX_PROJECTS:-2}
+      PROTEUS_MAX_BRANCHES: ${PROTEUS_MAX_BRANCHES:-5}
+      PROTEUS_DEMO_TTL_HOURS: ${PROTEUS_DEMO_TTL_HOURS:-6}
+    ports: !reset []
+
+  metadata:
+    environment:
+      POSTGRES_PASSWORD: ${PROTEUS_POSTGRES_PASSWORD:?Set a database password}
+    ports: !reset []
+
+  sandbox:
+    environment:
+      POSTGRES_PASSWORD: ${PROTEUS_POSTGRES_PASSWORD:?Set a database password}
+    ports: !reset []
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      PROTEUS_DOMAIN: ${PROTEUS_DOMAIN:?Set the public domain name}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - proteus
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
