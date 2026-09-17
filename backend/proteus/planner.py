@@ -7,7 +7,7 @@ from typing import Any
 
 from psycopg import sql
 
-from .schema import validate_snapshot
+from .schema import rewrite_check_expression, validate_snapshot
 
 
 def _identifier(value: str) -> sql.Identifier:
@@ -524,6 +524,20 @@ def build_plan(before: Any, after: Any, schema_name: str, online: bool = True) -
     old, new = validate_snapshot(before), validate_snapshot(after)
     plan = _Plan(schema_name, online)
     old_tables, new_tables = _by_id(old['tables']), _by_id(new['tables'])
+    # PostgreSQL itself rebinds checks on rename. Compare their definitions in the
+    # final name space so a rename does not unnecessarily drop and rebuild them.
+    for table_id in old_tables.keys() & new_tables.keys():
+        names = {column['id']: column['name'] for column in new_tables[table_id]['columns']}
+        renames = {
+            column['name']: names[column['id']]
+            for column in old_tables[table_id]['columns']
+            if column['id'] in names
+        }
+        for constraint in old_tables[table_id]['constraints']:
+            if constraint['kind'] == 'check':
+                constraint['expression'] = rewrite_check_expression(
+                    constraint['expression'], renames
+                )
     changed_columns = _changed_column_ids(old_tables, new_tables)
     dropped_constraints: set[tuple[str, str]] = set()
     # Remove foreign keys and constraints before their columns or referenced tables.

@@ -97,6 +97,8 @@ def test_rename_rebinds_a_check_and_merges_an_independent_check_change() -> None
     source['tables'][0]['columns'][0]['name'] = 'contact_email'
     source = validate_snapshot(rebind_unchanged_checks(base, source))
     assert source['tables'][0]['constraints'][0]['expression'] == "contact_email <> 'email'"
+    plan = build_plan(base, source, 'public')
+    assert [step['operation']['kind'] for step in plan['steps']] == ['rename_column']
     target['tables'][0]['constraints'][0]['expression'] = "email <> 'blocked'"
     result = merge_snapshots(base, source, target)
     assert result['conflicts'] == []

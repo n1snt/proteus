@@ -136,11 +136,25 @@ async def introspect(
     ids = _reference_ids(reference)
     version_row = (await _rows(conn, 'SHOW server_version_num'))[0]
     server_version = int(next(iter(version_row.values())))
+    if not 170000 <= server_version < 180000:
+        return {
+            'snapshot': {'tables': []},
+            'server_version': server_version,
+            'unsupported': [_unsupported('database', 'server', 'PostgreSQL 17 is required')],
+        }
+    if not await _rows(conn, 'SELECT 1 FROM pg_namespace WHERE nspname = %s', (schema_name,)):
+        return {
+            'snapshot': {'tables': []},
+            'server_version': server_version,
+            'unsupported': [_unsupported('schema', schema_name, 'schema does not exist')],
+        }
 
     relations = await _rows(
         conn,
         """
-        SELECT c.oid, c.relname, c.relkind, c.relpersistence, c.relispartition
+        SELECT c.oid, c.relname, c.relkind, c.relpersistence, c.relispartition,
+               c.relrowsecurity, c.relforcerowsecurity, c.reloptions, c.reltablespace,
+               EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid = c.oid OR i.inhparent = c.oid) AS inherited
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = %s
           AND c.relkind <> 'i'
@@ -166,6 +180,22 @@ async def introspect(
                 )
             )
             continue
+        if relation['inherited'] or relation['relrowsecurity'] or relation['relforcerowsecurity']:
+            unsupported.append(
+                _unsupported(
+                    'table',
+                    relation['relname'],
+                    'inheritance and row-level security are unsupported',
+                )
+            )
+        if relation['reloptions'] or relation['reltablespace']:
+            unsupported.append(
+                _unsupported(
+                    'table',
+                    relation['relname'],
+                    'custom storage settings and tablespaces are unsupported',
+                )
+            )
         tables[relation['oid']] = {
             'id': _id(ids, 'table', relation['relname']),
             'name': relation['relname'],
@@ -180,11 +210,13 @@ async def introspect(
         SELECT a.attrelid, a.attnum, a.attname, a.attnotnull, a.attidentity,
                a.attgenerated, format_type(a.atttypid, a.atttypmod) AS type_name,
                pg_get_expr(d.adbin, d.adrelid) AS default_expression,
-               coll.collname AS collation,
+               coll.collname AS collation, a.attstorage <> ty.typstorage AS custom_storage,
+               a.attcompression,
                s.seqstart, s.seqincrement, s.seqmin, s.seqmax, s.seqcache, s.seqcycle
         FROM pg_attribute a
         JOIN pg_class c ON c.oid = a.attrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_type ty ON ty.oid = a.atttypid
         LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
         LEFT JOIN pg_collation coll ON coll.oid = a.attcollation
         LEFT JOIN pg_depend dep ON dep.refobjid = a.attrelid AND dep.refobjsubid = a.attnum
@@ -201,6 +233,12 @@ async def introspect(
         if table is None:
             continue
         qualified_name = f'{table["name"]}.{column["attname"]}'
+        if column['custom_storage'] or column['attcompression']:
+            unsupported.append(
+                _unsupported(
+                    'column', qualified_name, 'custom storage or compression is unsupported'
+                )
+            )
         normal_type = _normal_type(column['type_name'])
         if normal_type is None:
             unsupported.append(
