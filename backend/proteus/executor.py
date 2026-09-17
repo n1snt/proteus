@@ -444,7 +444,16 @@ async def execute_plan(
 ) -> dict[str, Any]:
     """Apply one exact plan. A repeated execution ID resumes its own receipts only."""
     steps = plan.get('steps', [])
-    status_steps = [{'id': step['id'], 'state': 'pending'} for step in steps]
+    status_steps = [
+        {
+            'id': step['id'],
+            'state': 'pending',
+            'description': step['description'],
+            'sql': step['sql'],
+            'impact': step.get('impact', 'metadata'),
+        }
+        for step in steps
+    ]
     async with await psycopg.AsyncConnection.connect(
         dsn, row_factory=psycopg.rows.dict_row
     ) as conn:
@@ -461,6 +470,9 @@ async def execute_plan(
                 plan,
             )
             if migration['state'] == 'succeeded':
+                for status in status_steps:
+                    status['state'] = 'applied'
+                await _progress(progress, 'verifying', status_steps)
                 return {'status': 'succeeded'}
             for status, persisted in zip(status_steps, persisted_steps, strict=False):
                 status['state'] = persisted['state']
@@ -489,7 +501,12 @@ async def execute_plan(
             for step in persisted_steps:
                 if step['state'] == 'applied':
                     continue
-                await _progress(progress, 'applying', status_steps)
+                stage = (
+                    'validating'
+                    if step.get('operation', {}).get('kind') == 'validate_constraint'
+                    else 'applying'
+                )
+                await _progress(progress, stage, status_steps)
                 if _is_concurrent_index(step):
                     await _run_concurrent_step(conn, schema_name, execution_id, step)
                 else:
@@ -518,6 +535,13 @@ async def execute_plan(
                     partial = await _has_applied_steps(conn, execution_id)
                     if not await _record_failure(conn, execution_id, message, partial):
                         return {'status': 'succeeded'}
+                    recorded = await _fetch_steps(conn, execution_id, steps)
+                    for status, saved in zip(status_steps, recorded, strict=False):
+                        status['state'] = saved['state']
+                    await conn.commit()
+                    await _progress(
+                        progress, 'needs_attention' if partial else 'failed', status_steps
+                    )
             except Exception:
                 # A lost session can leave a commit outcome unknown. Do not claim a
                 # rollback or replace its receipt; a same-ID retry reconciles it.

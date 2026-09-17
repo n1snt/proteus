@@ -181,6 +181,16 @@ async def test_demo_branch_draft_and_commit_are_persisted(api_settings: Settings
             next(column for column in invoice['columns'] if column['name'] == 'amount_cents')[
                 'name'
             ] = 'amount_due_cents'
+            invoice['columns'].append(
+                {
+                    'id': str(uuid.uuid4()),
+                    'name': 'amount_cents',
+                    'data_type': 'bigint',
+                    'nullable': True,
+                    'default': None,
+                    'identity': None,
+                }
+            )
             snapshot['tables'][0]['columns'].append(
                 {
                     'id': str(uuid.uuid4()),

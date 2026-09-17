@@ -619,6 +619,47 @@ def build_plan(before: Any, after: Any, schema_name: str, online: bool = True) -
                 plan.warning(
                     f'Dropping {after_table["name"]}.{column["name"]} permanently removes its values.'
                 )
+        renamed = {
+            column_id: (old_columns[column_id], new_columns[column_id])
+            for column_id in old_columns.keys() & new_columns.keys()
+            if old_columns[column_id]['name'] != new_columns[column_id]['name']
+        }
+        occupied = {
+            column['name'] for column in before_table['columns'] if column['id'] in new_columns
+        }
+        staged_names: dict[str, str] = {}
+        if any(after['name'] in occupied for _, after in renamed.values()):
+            for column_id, (before_column, _) in sorted(renamed.items()):
+                temporary = (
+                    '__proteus_rename_' + hashlib.sha256(column_id.encode()).hexdigest()[:16]
+                )
+                all_names = occupied | {column['name'] for column in after_table['columns']}
+                while temporary in all_names:
+                    temporary += '_'
+                plan.add(
+                    sql.SQL('ALTER TABLE {} RENAME COLUMN {} TO {}').format(
+                        _qualified(schema_name, after_table['name']),
+                        _identifier(before_column['name']),
+                        _identifier(temporary),
+                    ),
+                    f'Free column name {before_column["name"]} for a rename',
+                    True,
+                    'metadata',
+                    {
+                        'kind': 'rename_column',
+                        'schema': schema_name,
+                        'table': after_table['name'],
+                        'name': before_column['name'],
+                        'new_name': temporary,
+                    },
+                )
+                staged_names[column_id] = temporary
+                occupied.add(temporary)
+        for column_id in sorted(old_columns.keys() & new_columns.keys()):
+            before_column = old_columns[column_id]
+            if column_id in staged_names:
+                before_column = {**before_column, 'name': staged_names[column_id]}
+            _alter_column(plan, before_table, after_table, before_column, new_columns[column_id])
         for column_id, column in sorted(new_columns.items()):
             if column_id not in old_columns:
                 plan.add(
@@ -636,10 +677,6 @@ def build_plan(before: Any, after: Any, schema_name: str, online: bool = True) -
                         'definition': column,
                     },
                 )
-        for column_id in sorted(old_columns.keys() & new_columns.keys()):
-            _alter_column(
-                plan, before_table, after_table, old_columns[column_id], new_columns[column_id]
-            )
     for table_id in sorted(new_tables.keys() - old_tables.keys()):
         table = new_tables[table_id]
         definitions = sql.SQL(', ').join(_column_definition(column) for column in table['columns'])

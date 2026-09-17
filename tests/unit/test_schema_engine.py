@@ -88,11 +88,11 @@ def test_rename_rebinds_a_check_and_merges_an_independent_check_change() -> None
             'id': uid(),
             'name': 'email_check',
             'kind': 'check',
-            'columns': [base['tables'][0]['columns'][0]['id']],
             'expression': "email <> 'email'",
         }
     )
     base = validate_snapshot(base)
+    assert base['tables'][0]['constraints'][0]['columns'] == [base['tables'][0]['columns'][0]['id']]
     source, target = copy.deepcopy(base), copy.deepcopy(base)
     source['tables'][0]['columns'][0]['name'] = 'contact_email'
     source = validate_snapshot(rebind_unchanged_checks(base, source))

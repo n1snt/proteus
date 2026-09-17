@@ -451,6 +451,18 @@ def validate_snapshot(snapshot: Any) -> Snapshot:
                     raise _error(
                         f'{constraint_path}.expression', 'is required for a check constraint'
                     )
+                node = _expression_node(expression, f'{constraint_path}.expression')
+                reference = node.arg if isinstance(node, ast.NullTest) else node.lexpr
+                referenced_name = reference.fields[0].sval
+                expected_columns = [
+                    column['id'] for column in table['columns'] if column['name'] == referenced_name
+                ]
+                if columns and columns != expected_columns:
+                    raise _error(
+                        f'{constraint_path}.columns',
+                        'must match the column used in the check expression',
+                    )
+                columns = expected_columns
             elif expression is not None:
                 raise _error(
                     f'{constraint_path}.expression', 'is only allowed on a check constraint'

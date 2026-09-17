@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import os
 from uuid import uuid4
 
 import psycopg
 import pytest
-from proteus import catalog, executor, schema
+from proteus import catalog, executor, planner, schema
 from psycopg import conninfo, sql
 from psycopg.rows import dict_row
 
@@ -43,6 +44,56 @@ async def database():
 
 def object_id() -> str:
     return str(uuid4())
+
+
+@pytest.mark.integration
+async def test_literal_defaults_and_varchar_checks_round_trip_through_postgres(
+    database: str,
+) -> None:
+    async with await psycopg.AsyncConnection.connect(database, row_factory=dict_row) as conn:
+        await conn.execute('CREATE TABLE samples (code varchar(20))')
+        before = (await catalog.introspect(conn, 'public'))['snapshot']
+        await executor.initialize_tracking(conn, 'literal-environment', 'before', before)
+        await conn.commit()
+    after = copy.deepcopy(before)
+    table = after['tables'][0]
+    table['columns'][0]['default'] = "'draft'"
+    table['columns'].append(
+        {
+            'id': object_id(),
+            'name': 'count',
+            'data_type': 'integer',
+            'nullable': True,
+            'default': "'12'::integer",
+            'identity': None,
+        }
+    )
+    table['constraints'].append(
+        {
+            'id': object_id(),
+            'name': 'code_allowed',
+            'kind': 'check',
+            'columns': [table['columns'][0]['id']],
+            'expression': "code <> 'blocked'",
+        }
+    )
+    after = schema.validate_snapshot(after)
+    result = await executor.execute_plan(
+        database,
+        'public',
+        'literal-environment',
+        object_id(),
+        'before',
+        'after',
+        after,
+        planner.build_plan(before, after, 'public', online=False),
+    )
+    assert result['status'] == 'succeeded', result
+    async with await psycopg.AsyncConnection.connect(database) as conn:
+        row = await (
+            await conn.execute('INSERT INTO samples DEFAULT VALUES RETURNING code, count')
+        ).fetchone()
+        assert row == ('draft', 12)
 
 
 @pytest.mark.integration

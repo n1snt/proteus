@@ -7,7 +7,8 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import uuid4
 
-from pglast import parse_sql, stream
+from pglast import ast, parse_sql, stream
+from psycopg import sql
 from psycopg.rows import dict_row
 
 _SUPPORTED_TYPES = {
@@ -96,12 +97,21 @@ def _canonical_expression(expression: str) -> str | None:
     return None
 
 
-def _canonical_check(expression: str, column_names: set[str]) -> str | None:
+def _canonical_check(expression: str, column_types: dict[str, str]) -> str | None:
     """Use the validation grammar so import never accepts a check the engine rejects."""
     try:
         from .schema import _check_expression
 
-        return _check_expression(expression, column_names, 'catalog check')
+        node = parse_sql('SELECT ' + expression)[0].stmt.targetList[0].val
+        if isinstance(node, ast.A_Expr) and isinstance(node.lexpr, ast.TypeCast):
+            cast = node.lexpr
+            if isinstance(cast.arg, ast.ColumnRef) and len(cast.arg.fields) == 1:
+                name = cast.arg.fields[0].sval
+                if cast.typeName.names[-1].sval == 'text' and column_types.get(name, '').startswith(
+                    'varchar'
+                ):
+                    node.lexpr = cast.arg
+        return _check_expression(stream.RawStream()(node), set(column_types), 'catalog check')
     except ValueError:
         return None
 
@@ -126,6 +136,66 @@ async def _rows(conn: Any, query: str, parameters: Iterable[Any] = ()) -> list[d
     async with conn.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(query, tuple(parameters))
         return await cursor.fetchall()
+
+
+async def _same_literal(conn: Any, left: str, right: str, data_type: str | None = None) -> bool:
+    """Compare already-validated constants using PostgreSQL's actual coercion rules."""
+    if left == right:
+        return True
+    if 'CURRENT_TIMESTAMP' in left.upper() or 'CURRENT_TIMESTAMP' in right.upper():
+        return False
+    a, b = sql.SQL(left), sql.SQL(right)
+    if data_type is not None:
+        a = sql.SQL('({})::{}').format(a, sql.SQL(data_type))
+        b = sql.SQL('({})::{}').format(b, sql.SQL(data_type))
+    async with conn.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(sql.SQL('SELECT ({}) IS NOT DISTINCT FROM ({}) AS equal').format(a, b))
+        return bool((await cursor.fetchone())['equal'])
+
+
+async def _match_reference_expressions(
+    conn: Any, snapshot: dict[str, Any], reference: dict[str, Any]
+) -> None:
+    """Recognize implicit casts and folded literals without masking structural changes."""
+    from .schema import validate_snapshot
+
+    expected = validate_snapshot(reference)
+    tables = {table['name']: table for table in expected['tables']}
+    for table in snapshot['tables']:
+        original = tables.get(table['name'])
+        if original is None:
+            continue
+        columns = {column['name']: column for column in original['columns']}
+        for column in table['columns']:
+            prior = columns.get(column['name'])
+            if (
+                prior
+                and column['data_type'] == prior['data_type']
+                and column['default'] is not None
+                and prior['default'] is not None
+            ):
+                if await _same_literal(
+                    conn, column['default'], prior['default'], column['data_type']
+                ):
+                    column['default'] = prior['default']
+        constraints = {item['name']: item for item in original['constraints']}
+        for item in table['constraints']:
+            prior = constraints.get(item['name'])
+            if not prior or item['kind'] != 'check' or prior['kind'] != 'check':
+                continue
+            actual_node = parse_sql('SELECT ' + item['expression'])[0].stmt.targetList[0].val
+            expected_node = parse_sql('SELECT ' + prior['expression'])[0].stmt.targetList[0].val
+            if isinstance(actual_node, ast.A_Expr) and isinstance(expected_node, ast.A_Expr):
+                if (
+                    stream.RawStream()(actual_node.lexpr) == stream.RawStream()(expected_node.lexpr)
+                    and actual_node.name == expected_node.name
+                ):
+                    if await _same_literal(
+                        conn,
+                        stream.RawStream()(actual_node.rexpr),
+                        stream.RawStream()(expected_node.rexpr),
+                    ):
+                        item['expression'] = prior['expression']
 
 
 async def introspect(
@@ -348,8 +418,8 @@ async def introspect(
         if constraint['conindid']:
             constraint_index_oids.add(constraint['conindid'])
         if kind == 'foreign_key':
-            reference = tables.get(constraint['confrelid'])
-            if constraint['reference_schema'] != schema_name or reference is None:
+            referenced_table = tables.get(constraint['confrelid'])
+            if constraint['reference_schema'] != schema_name or referenced_table is None:
                 unsupported.append(
                     _unsupported('constraint', name, 'cross-schema foreign keys are unsupported')
                 )
@@ -370,7 +440,7 @@ async def introspect(
                 continue
             model.update(
                 {
-                    'reference_table': reference['id'],
+                    'reference_table': referenced_table['id'],
                     'reference_columns': [column['id'] for column in reference_columns],
                     'on_delete': actions.get(constraint['confdeltype']),
                     'on_update': actions.get(constraint['confupdtype']),
@@ -379,7 +449,7 @@ async def introspect(
         elif kind == 'check':
             expression = constraint['definition'][6:]  # Strip PostgreSQL's "CHECK " prefix.
             model['expression'] = _canonical_check(
-                expression, {column['name'] for column in table['columns']}
+                expression, {column['name']: column['data_type'] for column in table['columns']}
             )
             if model['expression'] is None:
                 unsupported.append(_unsupported('constraint', name, 'unsupported check expression'))
@@ -514,4 +584,6 @@ async def introspect(
         from .schema import validate_snapshot
 
         snapshot = validate_snapshot(snapshot)
+        if reference is not None:
+            await _match_reference_expressions(conn, snapshot, reference)
     return {'snapshot': snapshot, 'unsupported': unsupported, 'server_version': server_version}
